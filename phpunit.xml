@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Suíte do pacote twstec/kit-uploads, isolada do aplicativo: sobe uma
+    aplicação Laravel mínima (Orchestra Testbench) só com os providers deste
+    pacote e dos pacotes de que ele depende (twstec/kit-accounts,
+    twstec/kit-auth e twstec/kit-foundation). Os testes que dependem das
+    telas (perfil, painel /admin), da factory e das rotas web do aplicativo
+    continuam na suíte do starter.
+
+    AMBIENTE DE UMA APLICAÇÃO LARAVEL NOVA, FIXADO: o container de
+    desenvolvimento injeta o .env do starter inteiro no ambiente (idioma,
+    disco e limites de upload, pepper…) e o CI não injeta nada. O
+    tests/bootstrap.php apaga do processo toda variável que não está declarada
+    aqui (e as do sistema, como PATH e HOME), e as declaradas aqui valem com
+    force + server (o Laravel lê $_SERVER primeiro). A suíte sobe igual nos
+    dois lugares.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+        <testsuite name="Protections">
+            <directory>tests/Protections</directory>
+        </testsuite>
+        <testsuite name="Architecture">
+            <directory>tests/Architecture</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <server name="APP_ENV" value="testing" force="true"/>
+        <!-- A chave que o `key:generate` de uma aplicação nova grava no .env
+             (fixa, só de teste). O pepper das chaves de API cai nela quando
+             não há API_KEYS_HASH_PEPPER — o padrão de uma aplicação nova. -->
+        <env name="APP_KEY" value="base64:dGVzdGUtZG8tcGFjb3RlLXVwbG9hZHMtMzJieXRlcyE=" force="true"/>
+        <server name="APP_KEY" value="base64:dGVzdGUtZG8tcGFjb3RlLXVwbG9hZHMtMzJieXRlcyE=" force="true"/>
+        <env name="APP_LOCALE" value="en" force="true"/>
+        <server name="APP_LOCALE" value="en" force="true"/>
+        <env name="APP_FALLBACK_LOCALE" value="en" force="true"/>
+        <server name="APP_FALLBACK_LOCALE" value="en" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <server name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <server name="CACHE_STORE" value="array" force="true"/>
+        <env name="DB_CONNECTION" value="testing" force="true"/>
+        <server name="DB_CONNECTION" value="testing" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <server name="MAIL_MAILER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <server name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+        <server name="SESSION_DRIVER" value="array" force="true"/>
+    </php>
+</phpunit>

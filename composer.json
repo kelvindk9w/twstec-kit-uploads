@@ -1,0 +1,78 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "twstec/kit-uploads",
+    "description": "Uploads seguros do TWS Laravel Starter Kit, sem telas: validação pelo conteúdo real (magic bytes), allowlist e limite por tipo, recusa de executável, script embutido e PDF com ações automáticas, reprocessamento de imagem, nome seguro, entrega por URL assinada com validade, foto de perfil e o POST /api/v1/uploads.",
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://github.com/kelvindk9w/tws-laravel-starter-kit",
+    "authors": [
+        {
+            "name": "TWS",
+            "homepage": "https://github.com/kelvindk9w"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/kelvindk9w/tws-laravel-starter-kit/issues",
+        "source": "https://github.com/kelvindk9w/tws-laravel-starter-kit/tree/desenvolvimento/packages/uploads",
+        "docs": "https://github.com/kelvindk9w/tws-laravel-starter-kit/tree/desenvolvimento/docs"
+    },
+    "keywords": [
+        "laravel",
+        "uploads",
+        "file-validation",
+        "security",
+        "starter-kit"
+    ],
+    "require": {
+        "php": "^8.4",
+        "ext-fileinfo": "*",
+        "ext-gd": "*",
+        "laravel/framework": "^13.17",
+        "twstec/kit-accounts": "^2.0",
+        "twstec/kit-auth": "^2.0",
+        "twstec/kit-foundation": "^2.0"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.27",
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^4.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "Twstec\\Kit\\Uploads\\": "src/"
+        },
+        "files": [
+            "src/Compat/legacy-aliases.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Twstec\\Kit\\Uploads\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Twstec\\Kit\\Uploads\\UploadsServiceProvider"
+            ]
+        },
+        "branch-alias": {
+            "dev-main": "2.x-dev"
+        }
+    },
+    "scripts": {
+        "test": "pest",
+        "lint": "pint --test"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "platform": {
+            "php": "8.4.24"
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

@@ -1,0 +1,6 @@
+# O que NÃO vai no arquivo que o Composer baixa quando o pacote for publicado.
+/tests export-ignore
+/phpunit.xml export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/.dockerignore export-ignore

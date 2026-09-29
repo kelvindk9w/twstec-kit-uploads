@@ -1,0 +1,6 @@
+# Pacote (biblioteca): dependências de desenvolvimento e lock ficam fora do
+# repositório — quem instala o pacote resolve as versões no próprio projeto.
+/vendor
+/composer.lock
+/.phpunit.cache
+/.phpunit.result.cache
