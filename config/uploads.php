@@ -64,6 +64,65 @@ return [
         ],
     ],
 
+    // --- Classificação por finalidade (twstec/kit-uploads) --------------------
+    // `public`, `private` ou `confidential` — o projeto declara em cada
+    // chamada do SecureUploadService (parâmetro `classification`); sem
+    // declarar, vale este padrão. `private` é o comportamento de sempre (URL
+    // assinada de curta duração). `confidential` cifra antes de gravar e só
+    // entrega pela rota da aplicação, com trilha (seção abaixo). Valor
+    // desconhecido = erro (nunca um rebaixamento silencioso).
+    'classification' => [
+        'default' => env('UPLOADS_DEFAULT_CLASSIFICATION', 'private'),
+    ],
+
+    // --- Uploads CONFIDENCIAIS (twstec/kit-uploads) ----------------------------
+    // Cifrados ANTES de ir ao armazenamento (libsodium secretstream,
+    // XChaCha20-Poly1305 — AEAD, em blocos, sem o arquivo inteiro em memória),
+    // com chave PRÓPRIA, separada da APP_KEY:
+    //
+    //   php artisan uploads:encryption-key            # gera e grava no .env
+    //   php artisan uploads:encryption-key --rotate   # troca (a atual vira anterior)
+    //   php artisan uploads:reencrypt                 # recifra com a atual, sem indisponibilidade
+    //
+    // `key`: a ATUAL (`base64:` + 32 bytes). `previous_keys`: as ANTERIORES,
+    // separadas por vírgula — só decifram, até o uploads:reencrypt terminar.
+    // FALHA FECHADA: sem chave utilizável (ausente, inválida, igual à APP_KEY,
+    // sodium ausente), upload confidencial é RECUSADO e a entrega responde
+    // 503; em produção o motivo vai para o log a cada boot. Perder a chave =
+    // perder os arquivos: guarde-a no cofre de segredos.
+    //
+    // A entrega é a rota `uploads.confidential` (o pacote registra): URL
+    // assinada, amarrada a quem a gerou e à conta, válida por `url_minutes`;
+    // gerar, visualizar e baixar vão para a trilha de auditoria.
+    'confidential' => [
+        'key' => env('UPLOADS_ENCRYPTION_KEY'),
+        'previous_keys' => array_values(array_filter(array_map('trim', explode(',', (string) env('UPLOADS_ENCRYPTION_PREVIOUS_KEYS', ''))))),
+        'url_minutes' => (int) env('UPLOADS_CONFIDENTIAL_URL_MINUTES', 5),
+        // Pedidos por minuto, por IP, na rota de entrega.
+        'rate_limit' => (int) env('UPLOADS_CONFIDENTIAL_RATE_LIMIT', 60),
+        'route' => [
+            'prefix' => 'uploads/confidential',
+        ],
+    ],
+
+    // --- Retenção legal (legal hold) (twstec/kit-uploads) ---------------------
+    // Um upload pode receber "guardar até" (Retention\LegalHold). Enquanto
+    // vale, ele NÃO é apagado: a exclusão do dono (LGPD) segue, desvincula o
+    // upload (sem conta, sem autor) e registra na trilha a recusa de apagá-lo;
+    // a limpeza não o toca.
+    //
+    // `blocks_deletion`: true faz da guarda um IMPEDIMENTO — a exclusão da
+    // pessoa ou da conta é recusada inteira enquanto houver upload dela sob
+    // guarda (o mecanismo de impedimentos do twstec/kit-accounts).
+    //
+    // `schedule`: cron (UTC) do `uploads:erase-expired-holds`, que APAGA os
+    // desvinculados cuja guarda venceu. Vazio desliga, com aviso no log a cada
+    // boot.
+    'legal_hold' => [
+        'blocks_deletion' => env('UPLOADS_LEGAL_HOLD_BLOCKS_DELETION', false),
+        'schedule' => env('UPLOADS_LEGAL_HOLD_SCHEDULE', '50 3 * * *'),
+    ],
+
     // --- Entrega por URL assinada (pacote twstec/kit-uploads) -----------------
     // PROTEÇÃO que o pacote liga sozinho no disco padrão de uploads, quando ele
     // é local (mesmo que o disco a declare desligada): a entrega assinada do

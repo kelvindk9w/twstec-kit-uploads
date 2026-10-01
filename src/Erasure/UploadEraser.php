@@ -7,6 +7,7 @@ namespace Twstec\Kit\Uploads\Erasure;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Twstec\Kit\Accounts\Account\Models\Account;
 use Twstec\Kit\Accounts\Accounts;
@@ -15,10 +16,23 @@ use Twstec\Kit\Auth\Support\UserModel;
 use Twstec\Kit\Foundation\Audit\AuditTrail;
 use Twstec\Kit\Uploads\Jobs\DeleteUploadFiles;
 use Twstec\Kit\Uploads\Models\Upload;
+use Twstec\Kit\Uploads\Retention\LegalHold;
 
 /**
  * APAGA uploads de verdade — o registro no banco e o arquivo no disco — quando
- * o dono deles deixa de existir (LGPD):
+ * o dono deles deixa de existir (LGPD).
+ *
+ * EXCLUSÃO × APAGAMENTO: "exclusão" é o pedido sobre o TITULAR (excluir a
+ * pessoa, excluir a conta — twstec/kit-accounts); "apagamento" é sumir com o
+ * REGISTRO e o ARQUIVO (esta classe). A exclusão do titular pede o
+ * apagamento do que é dele; o que está sob GUARDA LEGAL (Retention\LegalHold)
+ * não é apagado: é DESVINCULADO — sem conta, sem autor, o nome original
+ * trocado pelo código público, `detached_at` preenchido — e a recusa de
+ * apagar vai para a trilha (`upload.erasure_refused`, `denied`, com o prazo e
+ * o motivo da guarda). Vencido o prazo, o `uploads:erase-expired-holds`
+ * (agendado pelo pacote) apaga o desvinculado.
+ *
+ * O que sai com a exclusão:
  *
  * - EXCLUSÃO DA PESSOA: a foto de perfil dela, as fotos pessoais que ela
  *   enviou e que não são a foto de mais ninguém, e os uploads das contas que
@@ -46,6 +60,10 @@ final class UploadEraser
 
     public const REASON_ACCOUNT = 'account_deleted';
 
+    public const REASON_HOLD_EXPIRED = 'legal_hold_expired';
+
+    public const REFUSED_ACTION = 'upload.erasure_refused';
+
     public function __construct(private readonly AuditTrail $trail) {}
 
     /**
@@ -53,7 +71,7 @@ final class UploadEraser
      * banco (no PostgreSQL as contas dela somem na mesma sentença).
      *
      * @param  list<int>  $vanishingAccountIds
-     * @return list<array{id: int, disk: string, path: string}>
+     * @return list<array{id: int, disk: string, path: string, tenant_uuid?: string|null}>
      */
     public function snapshotForPerson(AuthUser $user, array $vanishingAccountIds): array
     {
@@ -83,7 +101,7 @@ final class UploadEraser
      * estrangeira estar ligada no banco (como o pacote de contas faz com
      * projetos e chaves).
      *
-     * @param  list<array{id: int, disk: string, path: string}>  $snapshot
+     * @param  list<array{id: int, disk: string, path: string, tenant_uuid?: string|null}>  $snapshot
      */
     public function eraseForPerson(mixed $userId, array $snapshot): void
     {
@@ -105,9 +123,11 @@ final class UploadEraser
 
     /**
      * Apaga os registros agora (na transação corrente, se houver) e manda
-     * apagar os arquivos depois do commit.
+     * apagar os arquivos depois do commit — MENOS os que estão sob guarda
+     * legal neste instante: esses são desvinculados e a recusa vai para a
+     * trilha (uma linha por upload, com a conta de onde saiu).
      *
-     * @param  list<array{id: int, disk: string, path: string}>  $snapshot
+     * @param  list<array{id: int, disk: string, path: string, tenant_uuid?: string|null}>  $snapshot
      */
     public function erase(array $snapshot, string $reason, ?string $tenantUuid = null): void
     {
@@ -116,6 +136,23 @@ final class UploadEraser
         }
 
         $ids = array_map(fn (array $item): int => $item['id'], $snapshot);
+
+        // A guarda é conferida AGORA, no banco (não na foto tirada antes).
+        $guardados = $this->system(fn () => Upload::query()->whereKey($ids)->where('retain_until', '>', now())->orderBy('id')->get());
+
+        if ($guardados->isNotEmpty()) {
+            $contas = array_column($snapshot, 'tenant_uuid', 'id');
+
+            $this->detach($guardados->all(), fn (Upload $upload): ?string => $contas[$upload->getKey()] ?? $tenantUuid);
+
+            $idsGuardados = array_map('intval', $guardados->modelKeys());
+            $snapshot = array_values(array_filter($snapshot, fn (array $item): bool => ! in_array($item['id'], $idsGuardados, true)));
+            $ids = array_map(fn (array $item): int => $item['id'], $snapshot);
+
+            if ($snapshot === []) {
+                return;
+            }
+        }
 
         // Em massa (sem eventos de model): a trilha recebe UMA linha com a
         // contagem, não uma por arquivo.
@@ -141,21 +178,85 @@ final class UploadEraser
     }
 
     /**
+     * Os desvinculados cuja guarda venceu (ou foi tirada): apagamento,
+     * registro e arquivo. Chamado pelo `uploads:erase-expired-holds`.
+     *
+     * @return int Quantos saíram.
+     */
+    public function eraseExpiredHolds(): int
+    {
+        $snapshot = $this->describe(fn (): Builder => Upload::query()
+            ->whereNotNull('detached_at')
+            ->where(fn (Builder $query) => $query->whereNull('retain_until')->orWhere('retain_until', '<=', now())));
+
+        $this->erase($snapshot, self::REASON_HOLD_EXPIRED);
+
+        return count($snapshot);
+    }
+
+    /**
+     * Sob guarda: fica, sem dono. O nome original (dado de quem enviou) vira
+     * o código público; o conteúdo, o tipo e o hash continuam — é o que a
+     * guarda manda manter.
+     *
+     * @param  list<Upload>  $uploads
+     * @param  Closure(Upload): ?string  $tenantOf  A conta de onde o upload saiu (para a trilha).
+     */
+    private function detach(array $uploads, Closure $tenantOf): void
+    {
+        $holds = app(LegalHold::class);
+
+        foreach ($uploads as $upload) {
+            $motivo = $holds->refusalMessage($upload);
+
+            $this->system(fn () => Upload::query()->whereKey($upload->getKey())->update([
+                'account_id' => null,
+                'created_by' => null,
+                'original_name' => $this->anonymousName($upload),
+                'detached_at' => now(),
+            ]));
+
+            $this->trail->denied(self::REFUSED_ACTION, $upload, $motivo, tenantUuid: $tenantOf($upload));
+        }
+
+        Log::info('upload.erasure_refused', ['uploads' => count($uploads), 'reason' => 'legal_hold']);
+    }
+
+    private function anonymousName(Upload $upload): string
+    {
+        $caminho = (string) $upload->path;
+        $caminho = str_ends_with($caminho, '.enc') ? substr($caminho, 0, -4) : $caminho;
+        $extensao = pathinfo($caminho, PATHINFO_EXTENSION);
+
+        return (string) $upload->codigo_publico.($extensao !== '' ? '.'.$extensao : '');
+    }
+
+    /**
      * @param  Closure(): Builder<Upload>  $query
-     * @return list<array{id: int, disk: string, path: string}>
+     * @return list<array{id: int, disk: string, path: string, tenant_uuid: string|null}>
      */
     private function describe(Closure $query): array
     {
-        return $this->system(fn (): array => $query()
-            ->orderBy('id')
-            ->get(['id', 'disk', 'path'])
-            ->map(fn (Upload $upload): array => [
-                'id' => (int) $upload->getKey(),
-                'disk' => (string) $upload->disk,
-                'path' => (string) $upload->path,
-            ])
-            ->values()
-            ->all());
+        return $this->system(function () use ($query): array {
+            $uploads = $query()->orderBy('id')->get(['id', 'disk', 'path', 'account_id']);
+
+            // A conta de cada um, lida AGORA (no PostgreSQL, a conta da pessoa
+            // excluída some na mesma sentença que ela).
+            $contas = Account::query()
+                ->whereKey($uploads->pluck('account_id')->filter()->unique()->values()->all())
+                ->pluck('uuid', 'id')
+                ->all();
+
+            return $uploads
+                ->map(fn (Upload $upload): array => [
+                    'id' => (int) $upload->getKey(),
+                    'disk' => (string) $upload->disk,
+                    'path' => (string) $upload->path,
+                    'tenant_uuid' => $upload->account_id !== null ? ($contas[$upload->account_id] ?? null) : null,
+                ])
+                ->values()
+                ->all();
+        });
     }
 
     /**

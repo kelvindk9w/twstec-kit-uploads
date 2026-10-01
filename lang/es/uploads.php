@@ -29,4 +29,25 @@ return [
         'unreadable' => 'No se pudo leer el archivo enviado.',
     ],
 
+    // Uploads confidenciais (cifrados): entrega e recusas. O motivo vai para a
+    // trilha de auditoria; a chave nunca aparece.
+    'confidential' => [
+        'unavailable' => 'Los documentos confidenciales no están disponibles en este momento: el cifrado no está configurado. No se guardó nada.',
+        'unavailable_sodium' => 'Los documentos confidenciales no están disponibles: falta la extensión sodium de PHP (ext-sodium) en este servidor. No se guardó nada.',
+        'no_actor' => 'Un documento confidencial solo lo abre una persona identificada.',
+        'invalid_signature' => 'Enlace de documento confidencial inválido o vencido.',
+        'not_found' => 'Documento confidencial no encontrado.',
+        'actor_inactive' => 'Quien generó el enlace ya no existe o está bloqueado.',
+        'no_longer_allowed' => 'Quien generó el enlace ya no tiene acceso a este documento (otra cuenta o acceso retirado).',
+        'file_missing' => 'El archivo del documento confidencial no está en el almacenamiento.',
+    ],
+
+    // Retenção legal ("guardar até").
+    'legal_hold' => [
+        'reason_invalid' => 'Indique el motivo de la retención (hasta 160 caracteres).',
+        'until_in_past' => 'La fecha de la retención debe estar en el futuro.',
+        'erasure_refused' => 'El archivo :code está bajo retención legal hasta :until (:reason) y no se borró: quedó desvinculado y se borrará cuando venza el plazo.',
+        'blocks_deletion' => '{1} Hay :count archivo bajo retención legal: la eliminación queda para después del plazo de la retención.|[2,*] Hay :count archivos bajo retención legal: la eliminación queda para después del plazo de la retención.',
+    ],
+
 ];

@@ -29,4 +29,25 @@ return [
         'unreadable' => 'The uploaded file could not be read.',
     ],
 
+    // Uploads confidenciais (cifrados): entrega e recusas. O motivo vai para a
+    // trilha de auditoria; a chave nunca aparece.
+    'confidential' => [
+        'unavailable' => 'Confidential documents are unavailable right now: encryption is not configured. Nothing was stored.',
+        'unavailable_sodium' => 'Confidential documents are unavailable: the PHP sodium extension (ext-sodium) is missing on this server. Nothing was stored.',
+        'no_actor' => 'A confidential document can only be opened by an identified person.',
+        'invalid_signature' => 'Invalid or expired confidential document link.',
+        'not_found' => 'Confidential document not found.',
+        'actor_inactive' => 'Whoever created the link no longer exists or is blocked.',
+        'no_longer_allowed' => 'Whoever created the link no longer has access to this document (different account or access removed).',
+        'file_missing' => 'The confidential document file is not in storage.',
+    ],
+
+    // Retenção legal ("guardar até").
+    'legal_hold' => [
+        'reason_invalid' => 'Enter the reason for the hold (up to 160 characters).',
+        'until_in_past' => 'The hold date must be in the future.',
+        'erasure_refused' => 'File :code is under legal hold until :until (:reason) and was not erased: it was detached and will be erased when the hold expires.',
+        'blocks_deletion' => '{1} There is :count file under legal hold: deletion must wait until the hold expires.|[2,*] There are :count files under legal hold: deletion must wait until the hold expires.',
+    ],
+
 ];

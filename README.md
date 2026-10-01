@@ -18,9 +18,13 @@ arquitetura na suíte do pacote garante isso.
 O **dono do upload é a conta** (como projetos e chaves de API, do
 `twstec/kit-accounts`), com o isolamento automático da conta atual; a **foto
 de perfil é da pessoa**; excluir a pessoa ou a conta **apaga os arquivos**
-(LGPD). Ver [De quem é o upload](#de-quem-é-o-upload).
+(LGPD) — menos os que estão sob **guarda legal**. Documentos **confidenciais**
+são cifrados antes de ir ao armazenamento, com chave própria, e cada acesso
+vai para a trilha. Ver [De quem é o upload](#de-quem-é-o-upload) e
+[Confidenciais e guarda legal](#confidenciais-e-guarda-legal).
 
-- **Requisitos:** PHP 8.4+ com as extensões `fileinfo` e `gd`, Laravel 13,
+- **Requisitos:** PHP 8.4+ com as extensões `fileinfo`, `gd` e `sodium` (esta,
+  só para os uploads confidenciais; vem no PHP oficial e na imagem do kit), Laravel 13,
   `twstec/kit-accounts`, `twstec/kit-auth` e `twstec/kit-foundation` 2.x.
 - **Licença:** MIT.
 
@@ -40,6 +44,10 @@ de perfil é da pessoa**; excluir a pessoa ou a conta **apaga os arquivos**
 | `Http\Controllers` | `UploadController` (API v1) e `AvatarController` (avatar pela web), com os Form Requests e o `UploadResource` |
 | `Http\UploadRoutes` | A rota `POST /api/v1/uploads` |
 | `Support\SignedDelivery` | Liga a entrega assinada do Laravel no disco local de uploads |
+| `Classification\UploadClassification` | A classificação por finalidade (`public`, `private` — o padrão —, `confidential`), declarada em cada chamada do serviço |
+| `Confidential\*` | Uploads confidenciais: a cifra em fluxo (`StreamCipher`, libsodium secretstream), as chaves (`Keyring`, `EncryptionKey`), o armazenamento cifrado (`ConfidentialStorage`), a URL amarrada a quem gerou e a trilha de acesso (`ConfidentialAccess`) e a rota que decifra (`Http\ConfidentialDownloadController`) |
+| `Console\GenerateEncryptionKey`, `Console\ReencryptConfidentialUploads` | `uploads:encryption-key` (gera, `--rotate`, `--show`) e `uploads:reencrypt` (rotação sem indisponibilidade, idempotente e retomável) |
+| `Retention\LegalHold`, `Retention\LegalHoldDeletionCheck`, `Console\EraseExpiredHolds` | A guarda legal ("guardar até"): pôr/tirar com trilha, desvincular em vez de apagar na exclusão do dono, impedimento de exclusão opcional e `uploads:erase-expired-holds` (agendado pelo pacote) |
 
 ## Instalação
 
@@ -109,7 +117,18 @@ Nenhuma proteção depende de o aplicativo lembrar de chamar algo:
   do `twstec/kit-accounts` — sem opção para desligar.
 - **Comando e agendamento** da limpeza `uploads:prune-orphans`
   (`uploads.prune.schedule`, cron; vazio desliga, com aviso no log a cada
-  boot).
+  boot) — que não toca o que está sob guarda legal.
+- **Uploads confidenciais:** a rota de entrega `uploads.confidential`
+  (limitada por IP), os comandos da chave e, **em produção, o aviso no log a
+  cada boot** quando não há chave utilizável (o upload confidencial é
+  recusado de qualquer jeito — falha fechada).
+- **Guarda legal:** o verificador no mecanismo de impedimentos de exclusão do
+  `twstec/kit-accounts` e o agendamento do `uploads:erase-expired-holds`
+  (`uploads.legal_hold.schedule`; vazio desliga, com aviso).
+- A migration `2026_10_01_000001_add_classification_and_legal_hold_to_uploads.php`
+  (todo upload existente vira `private`; a chave estrangeira da conta passa a
+  `SET NULL`; reversível, e a volta recusa enquanto houver confidencial ou
+  desvinculado).
 - **Traduções** (pt-BR, en, es) das mensagens do upload e de cada motivo de
   recusa (`uploads.*`), sem namespace. **O aplicativo vence** na mesma chave
   (a regra do foundation, `Localization\PackageTranslations`).
@@ -163,6 +182,36 @@ transação da exclusão, arquivo por job na fila depois do commit, com nova
 tentativa; exclusão recusada ou desfeita não apaga nada. O guia completo
 (migração, limpeza, trilha) está em [`docs/uploads.md`](https://github.com/kelvindk9w/tws-laravel-starter-kit/blob/desenvolvimento/docs/uploads.md).
 
+## Confidenciais e guarda legal
+
+```php
+$upload = app(SecureUploadService::class)->handle($file, classification: UploadClassification::Confidential);
+$upload->url();                // rota da aplicação que decifra; a geração vai para a trilha
+$upload->url(download: true);  // para baixar
+
+app(LegalHold::class)->place($upload, now()->addYears(5), 'Contrato: guarda de 5 anos');
+```
+
+```bash
+php artisan uploads:encryption-key            # UPLOADS_ENCRYPTION_KEY no .env (nunca a APP_KEY)
+php artisan uploads:encryption-key --rotate   # troca, guardando a antiga em UPLOADS_ENCRYPTION_PREVIOUS_KEYS
+php artisan uploads:reencrypt                 # recifra com a atual, sem tirar nada do ar
+```
+
+- O **armazenamento só vê o cifrado** (XChaCha20-Poly1305 em blocos de 64 KB,
+  cada arquivo amarrado ao seu registro; o id da versão da chave no cabeçalho).
+- **Sem chave** (ou com chave inválida ou igual à `APP_KEY`): o upload
+  confidencial é recusado (503) e nada grava.
+- **Trilha no banco** de gerar a URL, visualizar e baixar — e das recusas —,
+  com ator, conta, arquivo e contexto (`panel`, `api`, `admin`). A URL é curta,
+  assinada e amarrada a quem a gerou; quem perde o acesso não abre mais (404).
+- **Exclusão × apagamento:** excluir o dono apaga o que é dele, menos o que
+  está sob guarda legal — esse fica desvinculado, com a recusa na trilha, até
+  o `uploads:erase-expired-holds` apagá-lo depois do prazo.
+
+O guia completo (formato, rotação, entrega, guarda legal) está em
+[`docs/uploads.md`](https://github.com/kelvindk9w/tws-laravel-starter-kit/blob/desenvolvimento/docs/uploads.md#uploads-confidenciais).
+
 ## O que o aplicativo liga
 
 | O quê | Como | Por que não no pacote |
@@ -171,6 +220,7 @@ tentativa; exclusão recusada ou desfeita não apaga nada. O guia completo
 | Rota web do avatar | `Route::post('settings/avatar', [AvatarController::class, 'update'])` no grupo autenticado do aplicativo | Rotas web (sessão, verificação de e-mail, limites) são do front, como as do `twstec/kit-auth` |
 | Coluna `users.avatar_upload_id` e a trait `HasAvatar` no model de usuário | Migration e model do aplicativo | O model de usuário é do aplicativo |
 | Escopo `uploads:create` no catálogo da tela de chaves | `api_keys.scopes_catalog` na cópia do aplicativo | O front decide o que oferece; a API aceita o escopo de qualquer jeito |
+| A chave dos confidenciais (`UPLOADS_ENCRYPTION_KEY`) e a classificação de cada envio | `.env` (gerada pelo `uploads:encryption-key`) e o parâmetro `classification` em quem chama o serviço | Segredo é do ambiente; a finalidade de cada upload é do projeto |
 | Resources e widgets de uploads no `/admin` | No starter | São do painel de administração |
 
 ## Nomes antigos → nomes novos

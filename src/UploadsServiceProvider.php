@@ -4,11 +4,21 @@ declare(strict_types=1);
 
 namespace Twstec\Kit\Uploads;
 
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Twstec\Kit\Accounts\Deletion\DeletionImpediments;
 use Twstec\Kit\Foundation\Localization\PackageTranslations;
+use Twstec\Kit\Uploads\Confidential\ConfidentialAccess;
+use Twstec\Kit\Uploads\Confidential\Keyring;
+use Twstec\Kit\Uploads\Console\EraseExpiredHolds;
+use Twstec\Kit\Uploads\Console\GenerateEncryptionKey;
 use Twstec\Kit\Uploads\Console\PruneOrphanUploads;
+use Twstec\Kit\Uploads\Console\ReencryptConfidentialUploads;
+use Twstec\Kit\Uploads\Retention\LegalHoldDeletionCheck;
 use Twstec\Kit\Uploads\Support\SignedDelivery;
 use Twstec\Kit\Uploads\Support\UploadLifecycle;
 
@@ -33,7 +43,16 @@ use Twstec\Kit\Uploads\Support\UploadLifecycle;
  *   arquivo por job na fila depois do commit. Sem opção para desligar;
  * - o comando `uploads:prune-orphans` e o AGENDAMENTO dele
  *   (`uploads.prune.schedule`, cron; vazio desliga, com aviso no log a cada
- *   boot).
+ *   boot);
+ * - os UPLOADS CONFIDENCIAIS: a rota de entrega que decifra
+ *   (`uploads.confidential`, limitada por IP), os comandos da chave
+ *   (`uploads:encryption-key`, `uploads:reencrypt`) e, EM PRODUÇÃO, o aviso
+ *   no log a cada boot quando não há chave utilizável (o upload confidencial
+ *   é recusado — falha fechada);
+ * - a RETENÇÃO LEGAL: o verificador de impedimento de exclusão no pacote de
+ *   contas (Retention\LegalHoldDeletionCheck — só recusa com
+ *   `uploads.legal_hold.blocks_deletion`) e o comando agendado
+ *   `uploads:erase-expired-holds` (`uploads.legal_hold.schedule`).
  *
  * As regras que moram no domínio continuam lá e não dependem de provider nem
  * de config: a validação pelo CONTEÚDO (magic bytes, allowlist por tipo,
@@ -77,9 +96,27 @@ final class UploadsServiceProvider extends ServiceProvider
             Log::warning($warning);
         }
 
+        // Sem chave dos confidenciais em produção: o motivo (nunca a chave)
+        // no log a cada boot. O upload confidencial é recusado de qualquer
+        // jeito (falha fechada); o aviso é para alguém ver antes do usuário.
+        if ($this->app->isProduction()) {
+            foreach (Keyring::fromConfig()->warnings() as $warning) {
+                Log::warning($warning);
+            }
+        }
+
         UploadLifecycle::register($this->app['events']);
 
+        // A guarda legal no mecanismo de impedimentos de exclusão do pacote
+        // de contas (só recusa com `uploads.legal_hold.blocks_deletion`).
+        $this->callAfterResolving(DeletionImpediments::class, static function (DeletionImpediments $impediments): void {
+            $impediments->register(LegalHoldDeletionCheck::class);
+        });
+
+        RateLimiter::for(ConfidentialAccess::ROUTE, static fn (Request $request): Limit => Limit::perMinute(max(1, (int) config('uploads.confidential.rate_limit', 60)))->by((string) $request->ip()));
+
         $this->registerPruneSchedule();
+        $this->registerLegalHoldSchedule();
 
         // A migration roda direto daqui, com o MESMO nome de arquivo que tinha
         // quando morava no aplicativo: um banco que já a rodou não vê nada
@@ -90,8 +127,16 @@ final class UploadsServiceProvider extends ServiceProvider
             $this->loadRoutesFrom($this->path('routes/api.php'));
         }
 
+        // A entrega dos confidenciais: sempre (é o único caminho deles).
+        $this->loadRoutesFrom($this->path('routes/web.php'));
+
         if ($this->app->runningInConsole()) {
-            $this->commands([PruneOrphanUploads::class]);
+            $this->commands([
+                PruneOrphanUploads::class,
+                GenerateEncryptionKey::class,
+                ReencryptConfidentialUploads::class,
+                EraseExpiredHolds::class,
+            ]);
 
             $this->publishes([
                 $this->path('config/uploads.php') => config_path('uploads.php'),
@@ -116,6 +161,28 @@ final class UploadsServiceProvider extends ServiceProvider
 
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) use ($cron): void {
             $schedule->command('uploads:prune-orphans')
+                ->cron($cron)
+                ->withoutOverlapping()
+                ->onOneServer();
+        });
+    }
+
+    /**
+     * O apagamento dos uploads cuja guarda legal venceu entra no agendador
+     * sozinho. Cron vazio = desligado, com aviso a cada boot.
+     */
+    private function registerLegalHoldSchedule(): void
+    {
+        $cron = trim((string) config('uploads.legal_hold.schedule', ''));
+
+        if ($cron === '' || in_array(strtolower($cron), ['false', 'off', '0'], true)) {
+            Log::warning('uploads.legal_hold.schedule vazio: o apagamento agendado dos uploads com a guarda legal vencida (uploads:erase-expired-holds) está DESLIGADO. Eles só saem rodando o comando à mão.');
+
+            return;
+        }
+
+        $this->callAfterResolving(Schedule::class, function (Schedule $schedule) use ($cron): void {
+            $schedule->command('uploads:erase-expired-holds')
                 ->cron($cron)
                 ->withoutOverlapping()
                 ->onOneServer();

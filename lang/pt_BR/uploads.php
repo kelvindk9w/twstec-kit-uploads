@@ -29,4 +29,25 @@ return [
         'unreadable' => 'Não foi possível ler o arquivo enviado.',
     ],
 
+    // Uploads confidenciais (cifrados): entrega e recusas. O motivo vai para a
+    // trilha de auditoria; a chave nunca aparece.
+    'confidential' => [
+        'unavailable' => 'Documentos confidenciais estão indisponíveis no momento: a cifra não está configurada. Nada foi gravado.',
+        'unavailable_sodium' => 'Documentos confidenciais estão indisponíveis: falta a extensão sodium do PHP (ext-sodium) neste servidor. Nada foi gravado.',
+        'no_actor' => 'Documento confidencial só é aberto por alguém identificado.',
+        'invalid_signature' => 'Link de documento confidencial inválido ou vencido.',
+        'not_found' => 'Documento confidencial não encontrado.',
+        'actor_inactive' => 'Quem gerou o link não existe mais ou está bloqueado.',
+        'no_longer_allowed' => 'Quem gerou o link não tem mais acesso a este documento (conta diferente ou acesso retirado).',
+        'file_missing' => 'O arquivo do documento confidencial não está no armazenamento.',
+    ],
+
+    // Retenção legal ("guardar até").
+    'legal_hold' => [
+        'reason_invalid' => 'Informe o motivo da guarda (até 160 caracteres).',
+        'until_in_past' => 'A data da guarda precisa estar no futuro.',
+        'erasure_refused' => 'O arquivo :code está sob guarda legal até :until (:reason) e não foi apagado: ficou desvinculado e será apagado quando o prazo vencer.',
+        'blocks_deletion' => '{1} Há :count arquivo sob guarda legal: a exclusão fica para depois do prazo da guarda.|[2,*] Há :count arquivos sob guarda legal: a exclusão fica para depois do prazo da guarda.',
+    ],
+
 ];

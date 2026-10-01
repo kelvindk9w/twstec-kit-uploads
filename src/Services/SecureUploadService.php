@@ -14,6 +14,10 @@ use Throwable;
 use Twstec\Kit\Accounts\Account\Exceptions\MissingAccountContextException;
 use Twstec\Kit\Accounts\Accounts;
 use Twstec\Kit\Auth\Contracts\AuthUser;
+use Twstec\Kit\Uploads\Classification\UploadClassification;
+use Twstec\Kit\Uploads\Confidential\ConfidentialStorage;
+use Twstec\Kit\Uploads\Confidential\Exceptions\ConfidentialStorageUnavailableException;
+use Twstec\Kit\Uploads\Confidential\Keyring;
 use Twstec\Kit\Uploads\Enums\UploadStatus;
 use Twstec\Kit\Uploads\Exceptions\UploadRejectedException;
 use Twstec\Kit\Uploads\Models\Upload;
@@ -29,7 +33,10 @@ use Twstec\Kit\Uploads\Models\Upload;
  *       JavaScript, re-encode de imagem);
  *   (c) nome seguro: uuid + extensão derivada do MIME REAL (o nome original
  *       NUNCA compõe o path);
- *   (d) persistência no disco (Cloudflare R2 em produção — S3-compatível);
+ *   (d) persistência no disco (Cloudflare R2 em produção — S3-compatível) —
+ *       CIFRADO antes, quando a classificação é `confidential`
+ *       (Confidential\ConfidentialStorage; sem chave, recusa antes de ler o
+ *       arquivo: falha fechada);
  *   (e) registro em banco (a CONTA atual e quem enviou — igual na web e na
  *       API —, sha256 do conteúdo final) + log estruturado.
  *
@@ -46,6 +53,7 @@ final class SecureUploadService
 {
     public function __construct(
         private readonly FileSecurityValidator $validator,
+        private readonly ConfidentialStorage $confidential,
     ) {}
 
     /**
@@ -56,9 +64,12 @@ final class SecureUploadService
      * @param  string|null  $directory  Diretório dentro do disco (default: config uploads.directory).
      * @param  list<string>|null  $allowedTypes  Tipos permitidos (chaves de
      *                                           config uploads.types — ex.: ['image'] no avatar). Default: config.
+     * @param  UploadClassification|null  $classification  A finalidade (padrão:
+     *                                                     `uploads.classification.default`, `private`).
      *
      * @throws UploadRejectedException Arquivo reprovado na segurança (422).
      * @throws MissingAccountContextException Sem conta atual.
+     * @throws ConfidentialStorageUnavailableException Confidencial sem chave de cifra (503).
      * @throws RuntimeException Falha de infraestrutura ao persistir (500).
      */
     public function handle(
@@ -66,6 +77,7 @@ final class SecureUploadService
         ?string $disk = null,
         ?string $directory = null,
         ?array $allowedTypes = null,
+        ?UploadClassification $classification = null,
     ): Upload {
         // Sem conta atual (inclusive em modo sistema, que não é conta de
         // ninguém), nem chega a validar e gravar no disco.
@@ -73,7 +85,7 @@ final class SecureUploadService
             throw MissingAccountContextException::forModel(Upload::class);
         }
 
-        return $this->store($file, $disk, $directory, $allowedTypes, fn (array $attributes): Upload => Upload::createWithPublicCodeRetry($attributes));
+        return $this->store($file, $disk, $directory, $allowedTypes, $classification, fn (array $attributes): Upload => Upload::createWithPublicCodeRetry($attributes));
     }
 
     /**
@@ -93,8 +105,9 @@ final class SecureUploadService
         ?string $disk = null,
         ?string $directory = null,
         ?array $allowedTypes = null,
+        ?UploadClassification $classification = null,
     ): Upload {
-        return $this->store($file, $disk, $directory, $allowedTypes, fn (array $attributes): Upload => Accounts::asSystem(
+        return $this->store($file, $disk, $directory, $allowedTypes, $classification, fn (array $attributes): Upload => Accounts::asSystem(
             'uploads:personal-upload',
             fn (): Upload => Upload::createWithPublicCodeRetry([
                 ...$attributes,
@@ -113,10 +126,26 @@ final class SecureUploadService
         ?string $disk,
         ?string $directory,
         ?array $allowedTypes,
+        ?UploadClassification $classification,
         Closure $create,
     ): Upload {
         $disk ??= (string) config('uploads.disk', 'local');
         $directory ??= (string) config('uploads.directory', 'uploads');
+        $classification ??= UploadClassification::default();
+
+        // Confidencial sem chave utilizável: recusa ANTES de ler o arquivo —
+        // nada vai para o disco, em claro ou não (falha fechada).
+        if ($classification->isConfidential() && ! ($chaves = Keyring::fromConfig())->available()) {
+            Log::warning('upload.rejected', [
+                'reason' => 'encryption_unavailable',
+                'detail' => $chaves->status(),
+                'original_name' => $this->sanitizeOriginalName($file->getClientOriginalName()),
+                'disk' => $disk,
+                'directory' => $directory,
+            ]);
+
+            throw ConfidentialStorageUnavailableException::because($chaves->status());
+        }
 
         /** @var list<string> $allowedTypes */
         $allowedTypes ??= array_values((array) config('uploads.allowed_types', ['image', 'pdf']));
@@ -144,15 +173,29 @@ final class SecureUploadService
         }
 
         // Nome seguro: uuid + extensão derivada do MIME REAL — o nome
-        // original nunca toca o path.
+        // original nunca toca o path. O confidencial ganha `.enc` (o objeto
+        // no armazenamento é o cifrado).
         $path = trim($directory, '/').'/'.Str::uuid()->toString().'.'.$result['extension'];
+        $attributes = [];
 
-        if (! Storage::disk($disk)->put($path, $result['content'])) {
+        if ($classification->isConfidential()) {
+            // O uuid do registro amarra o arquivo cifrado a ele: escolhido
+            // antes de gravar.
+            $uuid = (string) Str::uuid7();
+            $path .= '.enc';
+
+            $attributes = [
+                'uuid' => $uuid,
+                'encryption_key_id' => $this->confidential->put($disk, $path, $result['content'], $uuid),
+            ];
+        } elseif (! Storage::disk($disk)->put($path, $result['content'])) {
             throw new RuntimeException('Falha ao persistir o arquivo no armazenamento.');
         }
 
         try {
             $upload = $create([
+                ...$attributes,
+                'classification' => $classification,
                 'disk' => $disk,
                 'path' => $path,
                 'original_name' => $originalName,
@@ -172,6 +215,7 @@ final class SecureUploadService
         Log::info('upload.stored', [
             'upload_uuid' => $upload->uuid,
             'codigo_publico' => $upload->codigo_publico,
+            'classification' => $classification->value,
             'disk' => $disk,
             'mime' => $result['mime'],
             'size' => $upload->size,

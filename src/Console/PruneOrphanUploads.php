@@ -31,6 +31,12 @@ use Twstec\Kit\Uploads\Models\Upload;
  *    prazo protege o envio que está acontecendo agora (o arquivo vai para o
  *    disco um instante antes do registro).
  *
+ * NUNCA toca o que está sob GUARDA LEGAL (`retain_until` no futuro) nem o
+ * desvinculado pela guarda (`detached_at` — quem apaga esse é o
+ * `uploads:erase-expired-holds`, quando o prazo vence). Upload que ficou sem
+ * conta sem passar pelo pacote (a conta apagada direto no banco: a chave
+ * estrangeira solta o upload em vez de levá-lo junto) conta como órfão.
+ *
  * `--dry-run`: só conta e mostra; não apaga nada. Sem ele, apaga e registra
  * na trilha de auditoria (`upload.orphans_pruned`, só as contagens — nunca
  * caminho nem conteúdo).
@@ -84,9 +90,29 @@ final class PruneOrphanUploads extends Command
      */
     private function orphans(): Builder
     {
-        return Upload::query()
-            ->whereNotNull('orphaned_at')
-            ->where('orphaned_at', '<=', now()->subDays(max(0, (int) config('uploads.prune.orphans_after_days', 30))));
+        return $this->withoutHold(Upload::query()
+            ->whereNull('detached_at')
+            ->where(fn (Builder $query) => $query
+                ->where(fn (Builder $antigo) => $antigo
+                    ->whereNotNull('orphaned_at')
+                    ->where('orphaned_at', '<=', now()->subDays(max(0, (int) config('uploads.prune.orphans_after_days', 30)))))
+                // Sem conta, sem ser foto pessoal nem órfão marcado: a conta
+                // saiu por fora do pacote.
+                ->orWhere(fn (Builder $solto) => $solto
+                    ->whereNull('account_id')
+                    ->where('personal', false)
+                    ->whereNull('orphaned_at'))));
+    }
+
+    /**
+     * Fora o que está sob guarda legal agora.
+     *
+     * @param  Builder<Upload>  $query
+     * @return Builder<Upload>
+     */
+    private function withoutHold(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $guarda) => $guarda->whereNull('retain_until')->orWhere('retain_until', '<=', now()));
     }
 
     /**
@@ -94,9 +120,10 @@ final class PruneOrphanUploads extends Command
      */
     private function unusedPersonal(): Builder
     {
-        $query = Upload::query()
+        $query = $this->withoutHold(Upload::query()
             ->where('personal', true)
-            ->where('created_at', '<=', now()->subHours(max(0, (int) config('uploads.prune.personal_after_hours', 24))));
+            ->whereNull('detached_at')
+            ->where('created_at', '<=', now()->subHours(max(0, (int) config('uploads.prune.personal_after_hours', 24)))));
 
         $usuarios = UserModel::make();
 

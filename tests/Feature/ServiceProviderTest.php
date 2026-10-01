@@ -54,10 +54,11 @@ it('a configuração da aplicação vence a do pacote, chave de primeiro nível 
 it('roda a migration com o mesmo nome de arquivo que tinha no aplicativo', function (): void {
     $arquivos = array_map('basename', glob(dirname(__DIR__, 2).'/database/migrations/*.php'));
 
-    expect($arquivos)->toBe(['2026_08_20_300000_create_uploads_table.php', '2026_09_28_000001_move_uploads_to_accounts.php'])
+    expect($arquivos)->toBe(['2026_08_20_300000_create_uploads_table.php', '2026_09_28_000001_move_uploads_to_accounts.php', '2026_10_01_000001_add_classification_and_legal_hold_to_uploads.php'])
         ->and(app('migrator')->paths())->toContain(dirname(__DIR__, 2).'/database/migrations')
         ->and(Schema::hasTable('uploads'))->toBeTrue()
-        ->and(Schema::hasColumns('uploads', ['uuid', 'codigo_publico', 'account_id', 'created_by', 'personal', 'orphaned_at', 'disk', 'path', 'original_name', 'mime', 'size', 'sha256', 'status']))->toBeTrue();
+        ->and(Schema::hasColumns('uploads', ['uuid', 'codigo_publico', 'account_id', 'created_by', 'personal', 'orphaned_at', 'disk', 'path', 'original_name', 'mime', 'size', 'sha256', 'status']))->toBeTrue()
+        ->and(Schema::hasColumns('uploads', ['classification', 'encryption_key_id', 'retain_until', 'retention_reason', 'detached_at']))->toBeTrue();
 });
 
 it('registra POST /api/v1/uploads no grupo das rotas v1, com o nome e o middleware de rota de sempre', function (): void {

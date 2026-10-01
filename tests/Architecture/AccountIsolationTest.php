@@ -33,6 +33,15 @@ const UPLOADS_SYSTEM_MODE_ALLOWED = [
     'src/Erasure/UploadEraser.php' => 1,
     // Limpeza agendada: varre os uploads sem dono de todas as contas.
     'src/Console/PruneOrphanUploads.php' => 1,
+    // Entrega do confidencial: a rota não tem sessão nem conta atual; acha o
+    // upload em qualquer conta e quem decide é a regra (a conta da URL
+    // assinada tem de ser a do upload, e quem gerou ainda é membro dela).
+    'src/Confidential/ConfidentialAccess.php' => 1,
+    // Rotação da chave: recifra os confidenciais de todas as contas.
+    'src/Console/ReencryptConfidentialUploads.php' => 1,
+    // Guarda legal como impedimento de exclusão: conta os uploads sob guarda
+    // das contas que sairiam (não são a conta atual de ninguém).
+    'src/Retention/LegalHoldDeletionCheck.php' => 1,
 ];
 
 /**

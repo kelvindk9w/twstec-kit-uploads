@@ -24,14 +24,16 @@ use WeakMap;
  * - AccountDeleting (exclusão de conta, dentro da transação): apaga os
  *   uploads da conta do mesmo jeito.
  *
- * Sem opção para desligar: é o que a LGPD pede quando o titular sai.
+ * Sem opção para desligar: é o que a LGPD pede quando o titular sai. O que
+ * está sob GUARDA LEGAL não é apagado: fica desvinculado, com a recusa na
+ * trilha (ver Erasure\UploadEraser e Retention\LegalHold).
  */
 final class UploadLifecycle
 {
     /**
      * O que cada pessoa em exclusão vai levar junto.
      *
-     * @var WeakMap<AuthUser, list<array{id: int, disk: string, path: string}>>
+     * @var WeakMap<AuthUser, list<array{id: int, disk: string, path: string, tenant_uuid?: string|null}>>
      */
     private WeakMap $pending;
 
