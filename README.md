@@ -42,7 +42,7 @@ vai para a trilha. Ver [De quem é o upload](#de-quem-é-o-upload) e
 | `Console\PruneOrphanUploads` | `uploads:prune-orphans` (`--dry-run`): órfãos antigos, fotos pessoais sem uso e arquivos sem registro — agendado pelo pacote |
 | `Access\UploadOutsideAccountException` | A recusa de assinar upload fora da conta atual |
 | `Http\Controllers` | `UploadController` (API v1) e `AvatarController` (avatar pela web), com os Form Requests e o `UploadResource` |
-| `Http\UploadRoutes` | A rota `POST /api/v1/uploads` |
+| `Http\UploadRoutes` | A rota `POST /api/v1/uploads`, que aceita `Idempotency-Key`: o mesmo arquivo não é gravado duas vezes, e a repetição não guarda nem reexibe a URL assinada (ver [docs/uploads.md](https://github.com/kelvindk9w/tws-laravel-starter-kit/blob/desenvolvimento/docs/uploads.md#endpoints)) |
 | `Support\SignedDelivery` | Liga a entrega assinada do Laravel no disco local de uploads |
 | `Classification\UploadClassification` | A classificação por finalidade (`public`, `private` — o padrão —, `confidential`), declarada em cada chamada do serviço |
 | `Confidential\*` | Uploads confidenciais: a cifra em fluxo (`StreamCipher`, libsodium secretstream), as chaves (`Keyring`, `EncryptionKey`), o armazenamento cifrado (`ConfidentialStorage`), a URL amarrada a quem gerou e a trilha de acesso (`ConfidentialAccess`) e a rota que decifra (`Http\ConfidentialDownloadController`) |

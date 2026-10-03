@@ -6,6 +6,7 @@ namespace Twstec\Kit\Uploads\Http;
 
 use Illuminate\Support\Facades\Route;
 use Twstec\Kit\Accounts\Http\ApiRoutes;
+use Twstec\Kit\Foundation\Idempotency\Middleware\HandleIdempotencyKey;
 use Twstec\Kit\Uploads\Http\Controllers\UploadController;
 
 /**
@@ -25,9 +26,25 @@ use Twstec\Kit\Uploads\Http\Controllers\UploadController;
  * twstec/kit-accounts) entra no grupo — ela não é opção de quem registra —, e
  * a rota traz o próprio escopo (`scope:uploads:create`). O registro fica
  * na conta da chave (ver SecureUploadService e Models\Upload).
+ *
+ * IDEMPOTÊNCIA (`Idempotency-Key`, opcional — middleware `idempotent` do
+ * foundation): o reenvio do MESMO arquivo com a mesma chave não grava de
+ * novo; arquivo diferente com a mesma chave é recusado (422). A resposta traz
+ * a URL ASSINADA, que é credencial enquanto vale: ela NÃO é guardada nem
+ * reexibida. A repetição devolve "já processada" só com os campos de
+ * REPLAY_FIELDS (identificadores, tipo, tamanho, hash e situação), como nas
+ * rotas que exibem a secreta de uma chave de API. Ver docs/uploads.md.
  */
 final class UploadRoutes
 {
+    /**
+     * Campos do upload que podem voltar na repetição — nunca a URL assinada,
+     * o caminho no armazenamento nem o nome original do arquivo.
+     *
+     * @var list<string>
+     */
+    public const REPLAY_FIELDS = ['data.uuid', 'data.codigo_publico', 'data.mime', 'data.size', 'data.sha256', 'data.status'];
+
     /**
      * Registra a rota de upload da API v1.
      *
@@ -49,7 +66,7 @@ final class UploadRoutes
                 // → validação de segurança do arquivo (magic bytes, polyglot,
                 // PDF com script) → upload.
                 Route::post('uploads', [UploadController::class, 'store'])
-                    ->middleware('scope:uploads:create')
+                    ->middleware(['scope:uploads:create', HandleIdempotencyKey::using(withhold: true, keep: self::REPLAY_FIELDS)])
                     ->name('uploads.store');
             });
     }

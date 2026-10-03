@@ -63,7 +63,7 @@ it('roda a migration com o mesmo nome de arquivo que tinha no aplicativo', funct
 
 it('registra POST /api/v1/uploads no grupo das rotas v1, com o nome e o middleware de rota de sempre', function (): void {
     expect(uploadsApiRoutes())->toBe([
-        'POST api/v1/uploads api.v1.uploads.store => api,resolve.tenant,scope:uploads:create',
+        'POST api/v1/uploads api.v1.uploads.store => api,resolve.tenant,scope:uploads:create,idempotent:optional,withhold,keep=data.uuid|data.codigo_publico|data.mime|data.size|data.sha256|data.status',
     ]);
 });
 
@@ -71,7 +71,7 @@ it('segue o prefixo, o grupo e os nomes das rotas v1 do accounts quando não tem
     $this->bootWith(['api_keys.api.routes.prefix' => 'api/integracoes/v1', 'api_keys.api.routes.name' => 'integracoes.']);
 
     expect(uploadsApiRoutes('integracoes.'))->toBe([
-        'POST api/integracoes/v1/uploads integracoes.uploads.store => api,resolve.tenant,scope:uploads:create',
+        'POST api/integracoes/v1/uploads integracoes.uploads.store => api,resolve.tenant,scope:uploads:create,idempotent:optional,withhold,keep=data.uuid|data.codigo_publico|data.mime|data.size|data.sha256|data.status',
     ]);
 });
 
@@ -84,7 +84,7 @@ it('com o registro automático desligado, a aplicação registra a rota onde qui
     app('router')->getRoutes()->refreshNameLookups();
 
     expect(uploadsApiRoutes('arquivos.'))->toBe([
-        'POST api/arquivos/uploads arquivos.uploads.store => api,resolve.tenant,scope:uploads:create',
+        'POST api/arquivos/uploads arquivos.uploads.store => api,resolve.tenant,scope:uploads:create,idempotent:optional,withhold,keep=data.uuid|data.codigo_publico|data.mime|data.size|data.sha256|data.status',
     ]);
 
     // E a rota responde com a proteção (401 no envelope da API).
