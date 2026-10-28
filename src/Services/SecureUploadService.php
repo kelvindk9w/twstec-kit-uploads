@@ -14,6 +14,7 @@ use Throwable;
 use Twstec\Kit\Accounts\Account\Exceptions\MissingAccountContextException;
 use Twstec\Kit\Accounts\Accounts;
 use Twstec\Kit\Auth\Contracts\AuthUser;
+use Twstec\Kit\Uploads\Access\PublicUploadsDiskException;
 use Twstec\Kit\Uploads\Classification\UploadClassification;
 use Twstec\Kit\Uploads\Confidential\ConfidentialStorage;
 use Twstec\Kit\Uploads\Confidential\Exceptions\ConfidentialStorageUnavailableException;
@@ -21,6 +22,7 @@ use Twstec\Kit\Uploads\Confidential\Keyring;
 use Twstec\Kit\Uploads\Enums\UploadStatus;
 use Twstec\Kit\Uploads\Exceptions\UploadRejectedException;
 use Twstec\Kit\Uploads\Models\Upload;
+use Twstec\Kit\Uploads\Support\SignedDelivery;
 
 /**
  * FUNÇÃO GLOBAL ÚNICA de upload: toda parte do sistema usa ela.
@@ -71,6 +73,7 @@ final class SecureUploadService
      * @throws MissingAccountContextException Sem conta atual.
      * @throws ConfidentialStorageUnavailableException Confidencial sem chave de cifra (503).
      * @throws RuntimeException Falha de infraestrutura ao persistir (500).
+     * @throws PublicUploadsDiskException Em produção, disco público (500).
      */
     public function handle(
         UploadedFile $file,
@@ -132,6 +135,10 @@ final class SecureUploadService
         $disk ??= (string) config('uploads.disk', 'local');
         $directory ??= (string) config('uploads.directory', 'uploads');
         $classification ??= UploadClassification::default();
+
+        // Em produção, disco público é recusado ANTES de ler o arquivo: nada
+        // vai para um lugar acessível sem assinatura (falha fechada).
+        SignedDelivery::refusePublicDisk($disk);
 
         // Confidencial sem chave utilizável: recusa ANTES de ler o arquivo —
         // nada vai para o disco, em claro ou não (falha fechada).

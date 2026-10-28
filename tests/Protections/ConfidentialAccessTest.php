@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -11,12 +12,15 @@ use Twstec\Kit\Accounts\Account\Enums\AccountRole;
 use Twstec\Kit\Accounts\Account\Models\Account;
 use Twstec\Kit\Accounts\Account\Services\AccountService;
 use Twstec\Kit\Accounts\Accounts;
+use Twstec\Kit\Auth\Contracts\AuthUser;
 use Twstec\Kit\Auth\Enums\UserStatus;
 use Twstec\Kit\Foundation\Audit\Enums\AuditOutcome;
 use Twstec\Kit\Foundation\Audit\Models\AuditEvent;
 use Twstec\Kit\Uploads\Access\UploadOutsideAccountException;
 use Twstec\Kit\Uploads\Classification\UploadClassification;
+use Twstec\Kit\Uploads\Confidential\AdministratorFlagDelivery;
 use Twstec\Kit\Uploads\Confidential\ConfidentialAccess;
+use Twstec\Kit\Uploads\Confidential\Contracts\AuthorizesSystemConfidentialDelivery;
 use Twstec\Kit\Uploads\Models\Upload;
 use Twstec\Kit\Uploads\Services\SecureUploadService;
 use Twstec\Kit\Uploads\Tests\Fixtures\User;
@@ -260,6 +264,41 @@ it('em MODO SISTEMA (o /admin), quem gera é o operador logado: a URL vale enqua
     $operador->forceFill(['is_admin' => false])->save();
 
     $this->get($outra)->assertNotFound();
+});
+
+it('em MODO SISTEMA, a entrega pergunta ao critério registrado (AuthorizesSystemConfidentialDelivery): o do aplicativo — ou o do /admin — vale', function (): void {
+    Schema::table('users', fn (Blueprint $tabela) => $tabela->boolean('is_admin')->default(false));
+
+    $c = cenarioConfidencial();
+    $operador = User::fixture(['email_verified_at' => now()]);
+    $operador->forceFill(['is_admin' => true])->save();
+
+    expect(app(AuthorizesSystemConfidentialDelivery::class))->toBeInstanceOf(AdministratorFlagDelivery::class);
+
+    $this->actingAs($operador);
+    $url = Accounts::asSystem('teste: /admin', fn (): string => $c['upload']->url());
+    auth()->logout();
+
+    // O critério do aplicativo (ou do twstec/kit-admin) recusa, mesmo com
+    // is_admin: a URL não abre, com a recusa na trilha.
+    $perguntou = [];
+    app()->instance(AuthorizesSystemConfidentialDelivery::class, new class($perguntou) implements AuthorizesSystemConfidentialDelivery
+    {
+        /** @param  list<string>  $perguntou */
+        public function __construct(private array &$perguntou) {}
+
+        public function allows(AuthUser&Model $actor): bool
+        {
+            $this->perguntou[] = (string) $actor->getAttribute('uuid');
+
+            return false;
+        }
+    });
+
+    $this->get($url)->assertNotFound();
+
+    expect($perguntou)->toBe([(string) $operador->uuid])
+        ->and(trilhaConfidencial(ConfidentialAccess::VIEWED, AuditOutcome::Denied)->sole()->reason)->toBe(__('uploads.confidential.no_longer_allowed'));
 });
 
 it('pela API: a resposta do envio traz a URL do confidencial, e a trilha registra o contexto `api`', function (): void {

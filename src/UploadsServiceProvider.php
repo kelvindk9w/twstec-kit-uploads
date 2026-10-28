@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Twstec\Kit\Accounts\Deletion\DeletionImpediments;
 use Twstec\Kit\Foundation\Localization\PackageTranslations;
+use Twstec\Kit\Uploads\Confidential\AdministratorFlagDelivery;
 use Twstec\Kit\Uploads\Confidential\ConfidentialAccess;
+use Twstec\Kit\Uploads\Confidential\Contracts\AuthorizesSystemConfidentialDelivery;
 use Twstec\Kit\Uploads\Confidential\Keyring;
 use Twstec\Kit\Uploads\Console\EraseExpiredHolds;
 use Twstec\Kit\Uploads\Console\GenerateEncryptionKey;
@@ -88,6 +90,11 @@ final class UploadsServiceProvider extends ServiceProvider
         // Um só por processo: guarda, entre o `deleting` e o `deleted` da
         // pessoa, o que sai junto com ela.
         $this->app->singleton(UploadLifecycle::class);
+
+        // Quem ainda abre o confidencial gerado no /admin: o padrão é a marca
+        // `is_admin`; o twstec/kit-admin registra a permissão do painel (e o
+        // aplicativo pode registrar o dele).
+        $this->app->bindIf(AuthorizesSystemConfidentialDelivery::class, AdministratorFlagDelivery::class);
     }
 
     public function boot(): void

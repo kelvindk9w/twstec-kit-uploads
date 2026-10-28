@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Twstec\Kit\Uploads\Support;
 
 use Illuminate\Contracts\Config\Repository;
+use Twstec\Kit\Uploads\Access\PublicUploadsDiskException;
 
 /**
  * ENTREGA POR URL ASSINADA do disco de uploads — ligada pelo pacote.
@@ -21,7 +22,8 @@ use Illuminate\Contracts\Config\Repository;
  * `local`, mas nem toda aplicação tem isso: um esqueleto anterior não tem a
  * chave, e o esqueleto do Orchestra Testbench (a "aplicação limpa" da suíte
  * deste pacote) a declara FALSE. Sem a entrega, `temporaryUrl()` não existe
- * para o disco e a URL do upload cai na URL comum, sem assinatura. Por isso o
+ * para o disco e o upload fica SEM URL (`Upload::url()` recusa — nunca cai
+ * na URL comum, sem assinatura). Por isso o
  * pacote LIGA a entrega assinada no disco padrão de uploads, quando ele é
  * local, sem depender de o aplicativo lembrar — mesmo que o disco a declare
  * desligada: ela só entrega com assinatura válida (disco privado), então
@@ -34,7 +36,8 @@ use Illuminate\Contracts\Config\Repository;
  *   mexe no disco (opt-out explícito);
  * - `visibility => 'public'` no disco de uploads: a entrega do Laravel
  *   responde SEM assinatura (o pacote não muda a visibilidade de um disco que
- *   o aplicativo pode usar para outra coisa);
+ *   o aplicativo pode usar para outra coisa). EM PRODUÇÃO, não é só aviso: o
+ *   upload é RECUSADO ao gravar e ao gerar a URL (refusePublicDisk());
  * - outro disco já entregue no mesmo endereço (`/storage`): ligar derrubaria o
  *   boot do Laravel, então o pacote não liga.
  *
@@ -86,21 +89,45 @@ final class SignedDelivery
         $disk = (string) $config->get('uploads.disk', 'local');
         $definition = $config->get("filesystems.disks.{$disk}");
 
-        if (! is_array($definition) || ($definition['driver'] ?? null) !== 'local') {
+        if (! is_array($definition)) {
             return [];
         }
 
         $warnings = [];
 
-        if (($definition['serve'] ?? false) !== true) {
-            $warnings[] = "twstec/kit-uploads: o disco de uploads [{$disk}] é local e não tem a entrega assinada (`serve`) — outro disco já é entregue no mesmo endereço, e o pacote não a liga. A URL do upload cai na URL comum do disco, SEM assinatura e sem validade. Dê um `url` próprio a um dos discos ou use um disco que assine (S3/R2). Ver Twstec\\Kit\\Uploads\\Support\\SignedDelivery.";
+        if (($definition['driver'] ?? null) === 'local' && ($definition['serve'] ?? false) !== true) {
+            $warnings[] = "twstec/kit-uploads: o disco de uploads [{$disk}] é local e não tem a entrega assinada (`serve`) — outro disco já é entregue no mesmo endereço, e o pacote não a liga. O upload fica SEM URL (a URL comum do disco sairia sem assinatura e sem validade, e o pacote a recusa). Dê um `url` próprio a um dos discos ou use um disco que assine (S3/R2). Ver Twstec\\Kit\\Uploads\\Support\\SignedDelivery.";
         }
 
-        if (($definition['visibility'] ?? 'private') === 'public') {
-            $warnings[] = "twstec/kit-uploads: o disco de uploads [{$disk}] é PÚBLICO (`visibility => public`) — a entrega do Laravel responde SEM conferir a assinatura. Uploads devem ir para um disco privado. Ver Twstec\\Kit\\Uploads\\Support\\SignedDelivery.";
+        if (self::isPublic($config, $disk)) {
+            $warnings[] = "twstec/kit-uploads: o disco de uploads [{$disk}] é PÚBLICO (`visibility => public`) — o arquivo fica acessível SEM conferir a assinatura. Em APP_ENV=production o upload é RECUSADO (ao gravar e ao gerar a URL). Uploads devem ir para um disco privado (UPLOADS_DISK; sem ela, vale o FILESYSTEM_DISK). Ver Twstec\\Kit\\Uploads\\Support\\SignedDelivery.";
         }
 
         return $warnings;
+    }
+
+    /**
+     * O disco declara visibilidade pública (qualquer driver: no local, a
+     * entrega não confere a assinatura; no S3/R2, o objeto vira público)?
+     */
+    public static function isPublic(Repository $config, string $disk): bool
+    {
+        return $config->get("filesystems.disks.{$disk}.visibility") === 'public';
+    }
+
+    /**
+     * Em PRODUÇÃO, recusa gravar ou entregar upload em disco público — falha
+     * fechada no uso, como a recusa do e-mail que não entrega (o boot segue:
+     * `composer install` e os comandos de manutenção também sobem como
+     * produção). Fora de produção, vale o aviso de boot (warnings()).
+     *
+     * @throws PublicUploadsDiskException
+     */
+    public static function refusePublicDisk(string $disk): void
+    {
+        if (app()->isProduction() && self::isPublic(app('config'), $disk)) {
+            throw PublicUploadsDiskException::for($disk);
+        }
     }
 
     private static function protectionsEnabled(Repository $config): bool

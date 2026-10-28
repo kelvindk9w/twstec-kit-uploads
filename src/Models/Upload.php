@@ -15,11 +15,14 @@ use Twstec\Kit\Accounts\Account\Concerns\BelongsToAccount;
 use Twstec\Kit\Accounts\Accounts;
 use Twstec\Kit\Foundation\Identifiers\HasPublicCode;
 use Twstec\Kit\Foundation\Identifiers\RoutesByUuid;
+use Twstec\Kit\Uploads\Access\PublicUploadsDiskException;
 use Twstec\Kit\Uploads\Access\UploadOutsideAccountException;
+use Twstec\Kit\Uploads\Access\UploadUrlUnavailableException;
 use Twstec\Kit\Uploads\Classification\UploadClassification;
 use Twstec\Kit\Uploads\Confidential\ConfidentialAccess;
 use Twstec\Kit\Uploads\Enums\UploadStatus;
 use Twstec\Kit\Uploads\Retention\LegalHold;
+use Twstec\Kit\Uploads\Support\SignedDelivery;
 
 /**
  * Registro de upload (só arquivo aprovado pela validação de segurança).
@@ -169,9 +172,11 @@ class Upload extends Model
     }
 
     /**
-     * URL de acesso ao arquivo. NUNCA bucket público: tenta primeiro a URL
-     * temporária assinada (S3/R2 e local com serve); se o driver não suportar,
-     * cai para a URL padrão do disco.
+     * URL de acesso ao arquivo. NUNCA bucket público: só a URL temporária
+     * assinada (S3/R2 e local com serve). Se o disco não souber assinar, o
+     * upload fica SEM URL (UploadUrlUnavailableException) — nunca a URL
+     * comum do disco, que sairia sem assinatura e sem validade. Em produção,
+     * disco público é recusado (PublicUploadsDiskException).
      *
      * Assinar é dar acesso a quem receber a URL: só sai para o upload da
      * CONTA ATUAL, ou em modo sistema declarado (o /admin, a foto de perfil).
@@ -184,6 +189,8 @@ class Upload extends Model
      * (inclusive a recusa). `$download` = baixar (anexo) em vez de visualizar.
      *
      * @throws UploadOutsideAccountException
+     * @throws UploadUrlUnavailableException
+     * @throws PublicUploadsDiskException
      */
     public function url(?DateTimeInterface $expiration = null, bool $download = false): string
     {
@@ -193,14 +200,16 @@ class Upload extends Model
 
         $this->ensureSignable();
 
+        SignedDelivery::refusePublicDisk((string) $this->disk);
+
         $disk = Storage::disk((string) $this->disk);
 
         $expiration ??= now()->addMinutes((int) config('uploads.temporary_url_minutes', 15));
 
         try {
             return $disk->temporaryUrl((string) $this->path, $expiration);
-        } catch (Throwable) {
-            return $disk->url((string) $this->path);
+        } catch (Throwable $exception) {
+            throw UploadUrlUnavailableException::unsignable((string) $this->disk, $exception);
         }
     }
 

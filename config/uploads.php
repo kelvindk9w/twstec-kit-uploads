@@ -20,7 +20,9 @@ return [
     // Cloudflare R2 (S3-compatível). Em dev/testes: 'local' — o disco privado
     // que toda aplicação Laravel tem, entregue por URL assinada (o pacote liga
     // a entrega assinada nele, ver `protections`). O SecureUploadService
-    // aceita disco por chamada; este é apenas o default.
+    // aceita disco por chamada; este é apenas o default. Sem UPLOADS_DISK,
+    // vale o FILESYSTEM_DISK: disco PÚBLICO (`visibility => public`, como o
+    // `public` do Laravel) é recusado em produção — ver Support\SignedDelivery.
     'disk' => env('UPLOADS_DISK', env('FILESYSTEM_DISK', 'local')),
 
     // Diretório base dentro do disco quando o chamador não informa um.

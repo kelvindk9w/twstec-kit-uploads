@@ -21,6 +21,7 @@ use Twstec\Kit\Foundation\Audit\Enums\AuditContext;
 use Twstec\Kit\Foundation\Identifiers\UuidColumn;
 use Twstec\Kit\Foundation\Logging\CorrelationId;
 use Twstec\Kit\Uploads\Access\UploadOutsideAccountException;
+use Twstec\Kit\Uploads\Confidential\Contracts\AuthorizesSystemConfidentialDelivery;
 use Twstec\Kit\Uploads\Models\Upload;
 
 /**
@@ -42,7 +43,9 @@ use Twstec\Kit\Uploads\Models\Upload;
  * entrega, além da assinatura e da validade
  * (`uploads.confidential.url_minutes`, 5 minutos por padrão), a regra é
  * conferida DE NOVO: o upload ainda é daquela conta, quem gerou ainda existe,
- * está ativo e ainda é membro dela (no /admin: ainda é admin). Qualquer
+ * está ativo e ainda é membro dela (no /admin: ainda pode abrir confidencial
+ * lá — Contracts\AuthorizesSystemConfidentialDelivery; com o twstec/kit-admin,
+ * a permissão `uploads.view_confidential`). Qualquer
  * diferença → 404 (o mesmo de "não existe": não confirma que o arquivo
  * existe em outra conta) e a recusa na trilha. Assinatura inválida ou vencida
  * → 403, com a recusa na trilha sem confiar em nada do que veio na URL.
@@ -193,8 +196,9 @@ final class ConfidentialAccess
     private function stillAllowed(Upload $upload, AuthUser $actor, string $conta): bool
     {
         if ($conta === self::SYSTEM) {
-            // Gerada no /admin: quem gerou ainda entra no painel.
-            return (bool) $actor->getAttribute('is_admin');
+            // Gerada no /admin: quem gerou ainda pode abrir confidencial lá —
+            // com o twstec/kit-admin, a permissão do painel; sem ele, is_admin.
+            return $actor instanceof Model && app(AuthorizesSystemConfidentialDelivery::class)->allows($actor);
         }
 
         if (! UuidColumn::isValid($conta) || $upload->isPersonal() || $upload->getAttribute('account_id') === null) {

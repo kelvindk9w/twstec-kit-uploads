@@ -141,10 +141,11 @@ substituir.
 **Opt-out** (só explícito): `UPLOADS_PROTECTIONS=false`
 (`uploads.protections`) faz o pacote não mexer no disco — e ele grava um aviso
 no log a cada boot, em qualquer ambiente. Também avisam a cada boot: disco de
-uploads público (`visibility => public`, a entrega responde sem assinatura) e
-outro disco já entregue em `/storage` (o pacote não liga a entrega para não
-derrubar o boot). Um driver que não sabe assinar cai na URL comum do disco,
-como na 1.x.
+uploads público (`visibility => public`, o arquivo fica acessível sem
+assinatura — em produção, gravar e gerar URL nele é **recusado**) e outro
+disco já entregue em `/storage` (o pacote não liga a entrega para não
+derrubar o boot). Um disco que não sabe assinar deixa o upload **sem URL**
+(`url()` recusa) — nunca a URL comum do disco, sem assinatura.
 
 ## Rota da API v1
 

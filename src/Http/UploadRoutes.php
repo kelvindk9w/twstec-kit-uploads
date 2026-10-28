@@ -27,6 +27,11 @@ use Twstec\Kit\Uploads\Http\Controllers\UploadController;
  * a rota traz o próprio escopo (`scope:uploads:create`). O registro fica
  * na conta da chave (ver SecureUploadService e Models\Upload).
  *
+ * CHAVE DE CONTA (`account.key`, do twstec/kit-accounts): upload não tem
+ * projeto — o arquivo é da CONTA. Uma chave vinculada a projetos não grava
+ * arquivo de conta (recebe 403 e a recusa vai para a trilha), como não gera
+ * chave nem cria projeto: o vínculo limita o escopo, mesmo com `*:*`.
+ *
  * IDEMPOTÊNCIA (`Idempotency-Key`, opcional — middleware `idempotent` do
  * foundation): o reenvio do MESMO arquivo com a mesma chave não grava de
  * novo; arquivo diferente com a mesma chave é recusado (422). A resposta traz
@@ -66,7 +71,7 @@ final class UploadRoutes
                 // → validação de segurança do arquivo (magic bytes, polyglot,
                 // PDF com script) → upload.
                 Route::post('uploads', [UploadController::class, 'store'])
-                    ->middleware(['scope:uploads:create', HandleIdempotencyKey::using(withhold: true, keep: self::REPLAY_FIELDS)])
+                    ->middleware(['account.key', 'scope:uploads:create', HandleIdempotencyKey::using(withhold: true, keep: self::REPLAY_FIELDS)])
                     ->name('uploads.store');
             });
     }

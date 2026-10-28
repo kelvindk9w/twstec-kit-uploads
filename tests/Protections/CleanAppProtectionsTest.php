@@ -13,6 +13,10 @@ use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Twstec\Kit\Accounts\Account\Services\AccountService;
 use Twstec\Kit\Accounts\Accounts;
+use Twstec\Kit\Accounts\Tenancy\Models\Project;
+use Twstec\Kit\Foundation\Audit\Models\AuditEvent;
+use Twstec\Kit\Uploads\Access\PublicUploadsDiskException;
+use Twstec\Kit\Uploads\Access\UploadUrlUnavailableException;
 use Twstec\Kit\Uploads\Exceptions\UploadRejectedException;
 use Twstec\Kit\Uploads\Http\Controllers\AvatarController;
 use Twstec\Kit\Uploads\Models\Upload;
@@ -292,6 +296,22 @@ it('a rota de upload exige credencial e o escopo uploads:create', function (): v
     assertNothingStored();
 });
 
+it('chave vinculada a projetos não envia arquivo de CONTA (account.key): 403, nada gravado e a recusa na trilha', function (): void {
+    $owner = $this->owner();
+    $projeto = $this->inAccountOf($owner, fn () => Project::query()->create(['name' => 'Loja']));
+    ['api_key' => $key, 'secret_key' => $secret] = $this->keyFor($owner, ['scopes' => ['*:*'], 'project_uuids' => [$projeto->uuid]]);
+
+    $this->post('/api/v1/uploads', ['file' => fixtureArquivoEnviado(fixtureBytesPdf(), 'doc.pdf')], $this->credentials($key, $secret))
+        ->assertForbidden()
+        ->assertJsonPath('error.code', 'forbidden');
+
+    assertNothingStored();
+    expect(AuditEvent::query()->where('action', 'api_key.account_key_required')->count())->toBe(1);
+
+    // A chave de conta toda, com o mesmo escopo, envia.
+    $this->postUpload($owner, fixtureArquivoEnviado(fixtureBytesPdf(), 'doc.pdf'))->assertCreated();
+});
+
 // --- Disco sem a entrega declarada e opt-out -----------------------------------
 
 it('aplicação cujo disco local não tem a entrega (sem a chave, ou desligada): o pacote a liga e a URL sai assinada', function (array $disco): void {
@@ -331,6 +351,74 @@ it('opt-out explícito (UPLOADS_PROTECTIONS=false): o pacote não mexe no disco 
     (new UploadsServiceProvider($this->app))->boot();
 
     Log::shouldHaveReceived('warning')->once()->withArgs(fn (string $message): bool => str_starts_with($message, 'UPLOADS_PROTECTIONS=false'));
+
+    (new Filesystem)->deleteDirectory($raiz);
+});
+
+it('disco que não sabe assinar: url() RECUSA — nunca a URL comum do disco, sem assinatura e sem validade', function (): void {
+    $raiz = sys_get_temp_dir().'/kit-uploads-sem-entrega-'.uniqid();
+
+    // Opt-out: o pacote não liga a entrega, e o disco local fica sem `serve`.
+    $this->bootWith([
+        'uploads.protections' => false,
+        'filesystems.disks.local' => ['driver' => 'local', 'root' => $raiz, 'throw' => false],
+    ]);
+
+    $pessoa = $this->owner();
+    $upload = $this->inAccountOf($pessoa, fn (): Upload => app(SecureUploadService::class)->handle(fixtureArquivoEnviado(fixtureBytesPdf(), 'doc.pdf')));
+
+    $erro = null;
+
+    try {
+        $this->inAccountOf($pessoa, fn (): string => $upload->url());
+    } catch (Throwable $exception) {
+        $erro = $exception;
+    }
+
+    expect($erro)->toBeInstanceOf(UploadUrlUnavailableException::class)
+        ->and($erro?->getMessage())->toContain('[local]')
+        ->and($erro?->getMessage())->toContain('sem assinatura');
+
+    (new Filesystem)->deleteDirectory($raiz);
+});
+
+it('EM PRODUÇÃO, disco de uploads público é RECUSADO: não grava e não gera URL (fora de produção, só o aviso)', function (): void {
+    $raiz = sys_get_temp_dir().'/kit-uploads-publico-'.uniqid();
+
+    $this->bootWith([
+        'filesystems.disks.local' => ['driver' => 'local', 'root' => $raiz, 'serve' => true, 'throw' => false, 'visibility' => 'public'],
+    ]);
+
+    // Fora de produção, o disco público só avisa: o envio passa.
+    $pessoa = $this->owner();
+    $this->inAccountOf($pessoa, fn () => app(SecureUploadService::class)->handle(fixtureArquivoEnviado(fixtureBytesPdf(), 'antes.pdf')));
+    Accounts::asSystem('teste', fn () => Upload::query()->delete());
+    (new Filesystem)->cleanDirectory($raiz);
+
+    // Em produção (o banco já migrado: o `migrate` pediria confirmação; o
+    // ambiente volta no fim, antes da limpeza das migrations).
+    $this->app->detectEnvironment(static fn (): string => 'production');
+
+    try {
+        expect(app()->isProduction())->toBeTrue();
+
+        expect(fn () => $this->inAccountOf(null, fn () => app(SecureUploadService::class)->handle(fixtureArquivoEnviado(fixtureBytesPdf(), 'doc.pdf'))))
+            ->toThrow(PublicUploadsDiskException::class, 'visibility => public');
+
+        expect((new Filesystem)->allFiles($raiz))->toBe([])
+            ->and(Accounts::asSystem('teste', fn (): int => Upload::query()->count()))->toBe(0);
+
+        // O upload gravado quando o disco era privado também não ganha URL.
+        config()->set('filesystems.disks.local.visibility', 'private');
+        $upload = $this->inAccountOf($pessoa, fn (): Upload => app(SecureUploadService::class)->handle(fixtureArquivoEnviado(fixtureBytesPdf(), 'doc.pdf')));
+        expect($this->inAccountOf($pessoa, fn (): string => $upload->url()))->toContain('signature=');
+        config()->set('filesystems.disks.local.visibility', 'public');
+
+        expect(fn () => $this->inAccountOf($pessoa, fn (): string => $upload->url()))
+            ->toThrow(PublicUploadsDiskException::class);
+    } finally {
+        $this->app->detectEnvironment(static fn (): string => 'testing');
+    }
 
     (new Filesystem)->deleteDirectory($raiz);
 });
