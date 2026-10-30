@@ -1,0 +1,32 @@
+# =============================================================================
+# Extensão do Larastan (PHPStan) do twstec/kit-uploads — para a análise estática
+# do projeto que usa o pacote enxergar as colunas e os casts dos models dele.
+#
+# As tabelas do pacote são criadas pelas migrations DENTRO do pacote
+# (database/migrations, aqui ao lado); sem esta extensão, o projeto teria de
+# listar vendor/twstec/kit-uploads/database/migrations à mão no
+# databaseMigrationsPath. No projeto (phpstan.neon.dist):
+#
+#     includes:
+#         - vendor/twstec/kit-uploads/extension.neon
+#
+# (os starters do kit já incluem a de cada pacote instalado, pelo
+# phpstan.modules.php).
+#
+# ATENÇÃO: com qualquer item no databaseMigrationsPath, o Larastan deixa de
+# ler sozinho o database/migrations do projeto — liste-o no phpstan.neon.dist
+# do projeto (os starters já listam).
+# =============================================================================
+
+# O caminho abaixo é relativo a ESTE arquivo (não à pasta em que a análise
+# roda): vale com o pacote no vendor/ ou num path repository.
+expandRelativePaths:
+    - '[parameters][databaseMigrationsPath][]'
+
+parameters:
+    databaseMigrationsPath:
+        - database/migrations
+
+    # Os models do kit declaram os casts no método casts(). Sem esta opção o
+    # Larastan não o lê e trata enum, data e booleano como a coluna crua.
+    parseModelCastsMethod: true
