@@ -103,9 +103,12 @@ Nenhuma proteção depende de o aplicativo lembrar de chamar algo:
   mesmo grupo das rotas v1 do `twstec/kit-accounts` — autenticação por chave
   (`resolve.tenant`, sempre), limite por chave (`throttle:api`) e envelope de
   erro vêm de lá.
-- **Configuração padrão** em `config('uploads')`; as chaves de primeiro nível
-  do `config/uploads.php` do aplicativo prevalecem
-  (`vendor:publish --tag=uploads-config`).
+- **Configuração padrão** em `config('uploads')`, sem cópia no aplicativo; as
+  chaves de primeiro nível de um `config/uploads.php` do aplicativo
+  prevalecem, cada uma inteira
+  ([personalização](../../docs/personalizacao.md)). O pacote acrescenta
+  sozinho os limites de tamanho às configurações editáveis do /admin e, com
+  contas, o escopo `uploads` ao catálogo das chaves de API.
 - **Migration** com o **mesmo nome de arquivo** que tinha no aplicativo na 1.x
   (`2026_08_20_300000_create_uploads_table.php`): um banco que já a rodou não
   vê nada pendente; e a que passa os uploads para as contas

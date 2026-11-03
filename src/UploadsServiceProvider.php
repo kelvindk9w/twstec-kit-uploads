@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Twstec\Kit\Accounts\Deletion\DeletionImpediments;
+use Twstec\Kit\Foundation\Customization\PackageConfig;
+use Twstec\Kit\Foundation\Kit;
 use Twstec\Kit\Foundation\Localization\PackageTranslations;
 use Twstec\Kit\Uploads\Confidential\AdministratorFlagDelivery;
 use Twstec\Kit\Uploads\Confidential\ConfidentialAccess;
@@ -75,7 +77,18 @@ final class UploadsServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom($this->path('config/uploads.php'), 'uploads');
+        PackageConfig::merge($this->app, $this->path('config/uploads.php'), 'uploads');
+
+        // Limites de upload editáveis no /admin e, com o módulo de contas, a
+        // permissão de upload no catálogo de escopos das chaves de API.
+        PackageConfig::contribute($this->app, 'settings.overrides', [
+            'uploads.types.image.max_kb' => ['type' => 'int', 'min' => 64, 'max' => 51200, 'group' => 'uploads', 'span' => 4],
+            'uploads.types.pdf.max_kb' => ['type' => 'int', 'min' => 64, 'max' => 102400, 'group' => 'uploads', 'span' => 4],
+        ]);
+
+        if (Kit::has('accounts')) {
+            PackageConfig::contribute($this->app, 'api_keys.scopes_catalog', ['uploads' => ['create']]);
+        }
 
         // Antes do boot de QUALQUER provider — o FilesystemServiceProvider lê
         // os discos no boot dele para registrar a rota de entrega —, mas depois

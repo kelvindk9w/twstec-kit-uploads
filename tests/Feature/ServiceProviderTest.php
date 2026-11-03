@@ -125,3 +125,10 @@ it('o disco escolhido pela aplicação vence: o pacote não mexe num disco S3 ne
 
     expect(config('filesystems.disks.arquivos'))->toBe(['driver' => 's3', 'bucket' => 'x', 'region' => 'auto']);
 });
+
+it('acrescenta ao /admin os limites de upload e, com contas, a permissão de upload nas chaves de API, sem cópia no aplicativo', function (): void {
+    expect(config('settings.overrides'))->toHaveKey('uploads.types.image.max_kb')
+        ->toHaveKey('uploads.types.pdf.max_kb')
+        ->and(config('api_keys.scopes_catalog.uploads'))->toBe(['create'])
+        ->and(config('api_keys.scopes_catalog'))->toHaveKey('projects');
+});

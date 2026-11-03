@@ -3,9 +3,10 @@
 declare(strict_types=1);
 
 // =============================================================================
-// Uploads Seguros — configuração padrão do pacote twstec/kit-uploads. A
-// aplicação pode publicar a própria cópia (`vendor:publish
-// --tag=uploads-config`); as chaves de primeiro nível dela prevalecem.
+// Uploads Seguros — configuração padrão do pacote twstec/kit-uploads. O
+// aplicativo só tem config/uploads.php se mudar algo, com as chaves que muda
+// de primeiro nível que muda — cada uma vence a do pacote inteira; para um
+// valor solto, prefira a variável do .env (ver docs/personalizacao.md).
 //
 // Política (lei): o arquivo é validado pelo CONTEÚDO (magic bytes via finfo),
 // NUNCA pela extensão declarada. PDF é só PDF, imagem é só imagem.
