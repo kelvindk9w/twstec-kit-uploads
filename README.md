@@ -220,12 +220,11 @@ O guia completo (formato, rotação, entrega, guarda legal) está em
 
 | O quê | Como | Por que não no pacote |
 | --- | --- | --- |
-| Formulário do perfil e campo de foto do painel `/admin` | Componentes do front sobre `SecureUploadService` e `SafeFile` | São a interface |
-| Rota web do avatar | `Route::post('settings/avatar', [AvatarController::class, 'update'])` no grupo autenticado do aplicativo | Rotas web (sessão, verificação de e-mail, limites) são do front, como as do `twstec/kit-auth` |
+| Formulário do perfil | Componentes do front sobre `SecureUploadService` e `SafeFile` | São a interface |
+| Rota web do avatar | `Route::post('settings/avatar', [AvatarController::class, 'update'])` no grupo autenticado do aplicativo (starter Livewire; o React tem `profile/avatar`, num controller próprio sobre o `AvatarService`) | Rotas web (sessão, verificação de e-mail, limites) são do front, como as do `twstec/kit-auth` |
 | Coluna `users.avatar_upload_id` e a trait `HasAvatar` no model de usuário | Migration e model do aplicativo | O model de usuário é do aplicativo |
-| Escopo `uploads:create` no catálogo da tela de chaves | `api_keys.scopes_catalog` na cópia do aplicativo | O front decide o que oferece; a API aceita o escopo de qualquer jeito |
 | A chave dos confidenciais (`UPLOADS_ENCRYPTION_KEY`) e a classificação de cada envio | `.env` (gerada pelo `uploads:encryption-key`) e o parâmetro `classification` em quem chama o serviço | Segredo é do ambiente; a finalidade de cada upload é do projeto |
-| Resources e widgets de uploads no `/admin` | No starter | São do painel de administração |
+| Resources, widgets e o campo de foto de uploads no `/admin` | No `twstec/kit-admin` | São do painel de administração |
 
 ## Nomes antigos → nomes novos
 
