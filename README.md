@@ -54,7 +54,7 @@ vai para a trilha. Ver [De quem é o upload](#de-quem-é-o-upload) e
 Pelo Packagist:
 
 ```bash
-composer require "twstec/kit-uploads:^2.0@beta"   # durante o beta; na 2.0.0 estável, ^2.0
+composer require "twstec/kit-uploads:~2.0@beta"   # durante o beta; na 2.0.0 estável, ~2.0
 ```
 
 Durante o beta, cada pacote do kit que você requerer leva o `@beta` (ou o
